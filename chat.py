@@ -25,7 +25,7 @@ blocking_button = Pin(13, Pin.IN, Pin.PULL_DOWN)
 sim_button = Pin(11, Pin.IN, Pin.PULL_DOWN)
 
 data_to_send = "Button pressed!"
-print("Press Westbount button to send message over UART")
+print("Press Westbound button to send message over UART")
 print("Press Eastbound button to simulate sending message over UART to device")
 print()
 
