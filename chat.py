@@ -7,15 +7,16 @@ when in input mode, no messages can be recieved
 
 from machine import Pin, UART
 import time
-import uasyncio as asyncio
+
+# Keep alive variables
+tag = "#TAG#"
+interval_ms = 10
+timeout_ms = 1000
+last_recieved = (time.time() * 1000)
 
 # Initialize UART for internal use
-uart_internal = UART(1, baudrate=9600, tx=Pin(8), rx=Pin(9))
-uart_internal.init(bits=8, parity=None, stop=1) 
-
-# Initialize UART to simulate eternal pico
-uart_external = UART(1, baudrate=9600, tx=Pin(8), rx=Pin(9))
-uart_external.init(bits=8, parity=None, stop=1)
+uart = UART(1, baudrate=9600, tx=Pin(8), rx=Pin(9))
+uart.init(bits=8, parity=None, stop=1) 
 
 # Configure button input with internal pull-up
 blocking_button = Pin(13, Pin.IN, Pin.PULL_DOWN)
@@ -32,7 +33,9 @@ blocking_prev_state = 0
 sim_prev_state = 0
 
 while True:
-    
+    current_time = (time.time() * 1000)
+    message_sent = False
+
     blocking_current_state = blocking_button.value()
     sim_current_state = sim_button.value()
 
@@ -40,62 +43,52 @@ while True:
     if (blocking_prev_state == 1 and blocking_current_state == 0):
         # get (blocking) user input
         data_to_send = input("Data to send? ")
-        uart_internal.write(data_to_send.encode('utf-8'))
+        current_time = (time.time() * 1000)
+
+        uart.write(data_to_send.encode('utf-8'))
+        message_sent = True
+        
         print("Message sent: <", data_to_send.strip(), ">")
         
         # Debounce delay
         time.sleep(0.3)
-    
+    blocking_prev_state = blocking_current_state
+
     # Detect button press (HIGH to LOW)
     if (sim_prev_state == 1 and sim_current_state == 0):
         # send message to pico
-        uart_external.write("Message from other pico".encode('utf-8'))
+        uart.write("Message from other pico".encode('utf-8'))
+        message_sent = True
 
+        # Debounce delay
         time.sleep(0.3)
-
-    blocking_prev_state = blocking_current_state
     sim_prev_state = sim_current_state
-    time.sleep(0.01)
 
     # Check for any incoming UART data
-    if (uart_internal.any()):
-        data = uart_internal.read()
+    if (uart.any()):
+        data = uart.read()
         if data:
-            print("Recevied:", data.decode('utf-8').strip())
+            last_recieved = current_time
+            data = data.decode('utf-8').strip()
+
+            if data.startswith(tag):  
+                pass
+            else:              
+                print("Recevied:", data)
         else:
             print("Null message recevied")
 
-    # sending keep alive, current time in milliseconds
-    sending_time = int(time.time() * 1000)
-    message_time = str(sending_time)
+    if ((current_time - last_recieved) > interval_ms) and not message_sent:
+        # sending keep alive, current time in milliseconds
+        sending_time = time.localtime()
+        message_time = (tag + str(sending_time))
 
-    uart_internal.write(message_time.encode('utf-8'))
+        uart.write(message_time.encode('utf-8'))
 
-    time.sleep(0.01)
-
-    # receiving keep alive, time in milliseconds from other machine
-    if (uart_internal.any()):
-        received_time = uart_internal.read()
-
-    
-        if received_time:
-            try:
-                received_time = int(received_time.decode('utf-8').strip())
-
-                if ((received_time - sending_time) >= 1):
-                    print("Connection timeout")
-                    break
-
-            except:
-                print("Error in keep alive")
-                break
-
-        else:
-            print("Keep alive recieved but empty")
-            break
-
-    else:
-        print("keep alive not recieved")
+    if ((current_time - last_recieved) > timeout_ms):
+        print("Connection Timeout")
         break
 
+    time.sleep(0.1)
+    
 print("... terminating connection")
